@@ -1,0 +1,11 @@
+# CORVORE validation-only Raspberry Pi config.txt fragment.
+#
+# This fragment temporarily disables onboard Wi-Fi and Bluetooth so that
+# clean-native base-system resource measurements are not contaminated by
+# radio activity.
+#
+# It is not production radio configuration.
+
+[all]
+dtoverlay=disable-wifi
+dtoverlay=disable-bt

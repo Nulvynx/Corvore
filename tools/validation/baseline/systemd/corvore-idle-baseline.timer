@@ -1,0 +1,10 @@
+[Unit]
+Description=CORVORE delayed clean-native idle resource baseline
+
+[Timer]
+OnBootSec=90s
+AccuracySec=1s
+Unit=corvore-idle-baseline.service
+
+[Install]
+WantedBy=timers.target

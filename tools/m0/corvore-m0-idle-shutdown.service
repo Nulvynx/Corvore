@@ -1,9 +1,0 @@
-[Unit]
-Description=CORVORE M0 baseline controlled shutdown
-After=corvore-m0-idle-baseline.service
-ConditionPathExists=/var/lib/corvore/m0-baseline/completed.json
-
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/systemctl --no-block poweroff
-TimeoutStartSec=30

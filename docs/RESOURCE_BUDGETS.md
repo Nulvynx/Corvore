@@ -1,21 +1,22 @@
-# CORVORE M0 Resource Budgets
+# CORVORE Resource Budgets
 
-Status: FROZEN — M0 baseline v1
+Status: FROZEN — reference baseline v1
 
-Platform:
+## Reference platform
+
 - Raspberry Pi Zero 2 W Rev 1.0
 - Raspberry Pi OS Lite ARM64
 - 64 GB class SD storage
-- Clean-native development image
-- Wi-Fi and Bluetooth temporarily disabled during this baseline
+- clean-native development image
+- Wi-Fi and Bluetooth disabled during the reference measurement
 
 Reference report SHA-256:
 
 `06fe79dbcb72382f692e1af50f473eace0fd4982fe52db17e6ef6bdfce088d98`
 
-## Clean-native base OS budgets
+## Clean-native base-system budgets
 
-| Resource | M0 budget |
+| Resource | Budget |
 |---|---:|
 | Boot time | <= 45 s |
 | Idle CPU busy | <= 5% |
@@ -27,7 +28,7 @@ Reference report SHA-256:
 | Failed systemd units | 0 |
 | Available root storage on reference 64 GB card | >= 50 GiB |
 
-## Reference baseline
+## Reference measurement
 
 - Boot: 26.651 s
 - CPU busy: 0.031263%
@@ -44,16 +45,16 @@ Reference report SHA-256:
 
 ## Interpretation
 
-These budgets constrain the clean-native base system.
+These limits constrain the clean-native base system.
 
 They are not production-runtime performance claims.
 
-The SD write-volume value is a linear extrapolation from a
-120-second idle observation and must be revalidated during longer
-soak tests and with the production collector/runtime.
+The SD write-volume value is a linear extrapolation from a 120-second
+idle observation. It must be revalidated during longer soak tests and
+with the production collector/runtime.
 
 Clock accuracy was not verified during this measurement.
 
-Runtime resource consumption introduced by corvored, Radio Service,
-Bettercap, WebUI, databases and evidence processing must be measured
-against these frozen M0 guardrails in later milestones.
+Resource consumption introduced by application services, radio
+collection, the WebUI, persistence processing and evidence handling must
+be measured against these reference guardrails in later validation.

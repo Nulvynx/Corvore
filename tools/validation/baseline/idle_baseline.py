@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-OUTPUT_DIR = Path("/var/lib/corvore/m0-baseline")
+OUTPUT_DIR = Path("/var/lib/corvore/validation/idle-baseline")
 REPORT = OUTPUT_DIR / "idle-baseline.json"
 COMPLETED = OUTPUT_DIR / "completed.json"
 FAILURE = OUTPUT_DIR / "failure.json"
@@ -435,7 +435,7 @@ def main():
 
     if COMPLETED.exists():
         print(
-            "CORVORE_M0_IDLE=ALREADY_COMPLETED",
+            "CORVORE_IDLE_BASELINE=ALREADY_COMPLETED",
             flush=True,
         )
         return 0
@@ -580,7 +580,7 @@ def main():
         report = {
             "schema_version": 1,
             "report_type":
-                "m0_clean_native_idle_baseline",
+                "clean_native_idle_baseline",
             "context":
                 "Raspberry Pi OS Lite ARM64 + CORVORE development baseline",
             "production_runtime": False,
@@ -669,7 +669,7 @@ def main():
 
         atomic_json(COMPLETED, marker)
 
-        print("CORVORE_M0_IDLE=PASS", flush=True)
+        print("CORVORE_IDLE_BASELINE=PASS", flush=True)
         print(
             f"REPORT_SHA256={digest}",
             flush=True,
@@ -691,7 +691,7 @@ def main():
             atomic_json(FAILURE, failure)
         finally:
             print(
-                "CORVORE_M0_IDLE=FAIL",
+                "CORVORE_IDLE_BASELINE=FAIL",
                 flush=True,
             )
 

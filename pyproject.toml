@@ -15,3 +15,9 @@ corvorectl = "corvore.__main__:main"
 [tool.setuptools.packages.find]
 where = ["node"]
 include = ["corvore*"]
+
+[tool.setuptools.package-data]
+corvore = [
+    "migrations/core/*.sql",
+    "migrations/observations/*.sql",
+]

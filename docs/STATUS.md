@@ -1,19 +1,23 @@
 # CORVORE implementation status
 
+## Branch policy
+
+- `dev` contains active development.
+- `main` is reserved for accepted stable/release states.
+
 ## Reference specification
 
-The implementation is governed by the CORVORE Master Product Plan and
-CORVORE Engineering Plan.
+Implementation is governed by the CORVORE Master Product Plan and
+Engineering Plan.
 
-Those documents define intended requirements. Functionality is considered
-implemented only when it exists in the repository and its acceptance
-evidence has passed.
+The specification defines intended behavior. Functionality is considered
+implemented only when code exists and its acceptance evidence passes.
 
-## Milestone state
+## Completed engineering gate
 
-### M0 — Hardware and clean-native resource baseline
+### Hardware and clean-native base-system qualification
 
-**CLOSED — PASS**
+Status: **PASS**
 
 Reference platform:
 
@@ -26,7 +30,7 @@ Reference baseline report SHA-256:
 
 `06fe79dbcb72382f692e1af50f473eace0fd4982fe52db17e6ef6bdfce088d98`
 
-Verified reference measurements:
+Verified measurements:
 
 - boot: 26.651 s
 - CPU busy: 0.031263%
@@ -41,119 +45,114 @@ Verified reference measurements:
 - available root storage: 53.347 GiB
 - failed systemd units: 0
 
-The 120-second write-rate measurement is a short-window extrapolation,
-not a measured 24-hour endurance figure.
-
 The filesystem passed a read-only `e2fsck` consistency check with exit
-code 0 after the controlled acceptance shutdown.
+code 0 after controlled shutdown.
 
-Resource budgets are frozen in:
+Resource limits are recorded in:
 
-- `docs/M0_RESOURCE_BUDGETS.md`
-- `config/m0-resource-budgets-v1.json`
+- `docs/RESOURCE_BUDGETS.md`
+- `config/resource-budgets.json`
 
-Clock accuracy was not verified during M0 and remains a separate
-TimeProvider concern.
+Clock accuracy was not verified during the reference measurement.
 
-Wi-Fi and Bluetooth were intentionally disabled during the clean-native
-M0 baseline. Radio-runtime resource use is therefore not validated by M0.
+Onboard Wi-Fi and Bluetooth were deliberately disabled during the
+clean-native baseline, so radio-runtime resource consumption remains
+unvalidated.
 
-### M1 — Data and runtime foundation
+## Current development focus
 
-**NEXT — NOT YET ACCEPTED**
+### Persistence and runtime foundation
 
-M1 will establish:
+Status: **IN PROGRESS**
 
-- canonical data contracts,
-- `core.db`,
-- `observations.db`,
-- schema initialization and migrations,
-- SQLite durability policy,
-- CLI/runtime foundation,
-- systemd runtime integration,
-- test harness separation from production runtime,
-- restart and persistence acceptance tests.
+Current work establishes:
+
+- canonical observation contracts
+- `core.db`
+- `observations.db`
+- schema migration integrity
+- SQLite durability policy
+- CLI persistence administration
+- durable processing checkpoint
+- local transactional outbox
+- restart and recovery semantics
+- separation of production runtime from engineering validation tools
 
 ## Implemented foundation
 
-Current repository functionality includes:
+The repository currently contains:
 
-- Python package foundation without runtime third-party dependencies,
-- development CLI entry point,
-- read-only local diagnostics,
-- bounded Linux CPU and block-write measurement,
-- native first-boot acceptance tooling,
-- persistent diagnostic journal configuration for acceptance work,
-- M0 resource-baseline tooling,
-- frozen M0 resource budgets.
+- dependency-light Python package foundation
+- local administration CLI
+- read-only system diagnostics
+- bounded Linux CPU and block-write measurement
+- native first-boot acceptance tooling
+- persistent journal configuration for acceptance work
+- clean-native resource-baseline tooling
+- frozen reference resource budgets
 
-The native first-boot acceptance tooling is development and acceptance
-infrastructure. It is not the production CORVORE runtime.
+## Not yet implemented as production components
 
-## Not implemented yet
-
-The following major components are not yet production implementations:
-
-- `corvored`,
-- split production databases,
-- live radio collector,
-- Bettercap integration,
-- Radio Service / Command Broker,
-- WebUI,
-- pairing and mTLS management channel,
-- Vault,
-- GPS / TimeProvider,
-- Evidence Engine,
-- Workbench,
-- update / rollback system,
-- final reproducible native image.
-
-## M0 acceptance tooling
-
-The repository retains the tooling needed to reproduce and inspect the
-M0 acceptance process.
-
-The original unconditional first-boot shutdown unit was removed after
-testing because shutdown must only occur after explicit acceptance
-conditions are satisfied.
-
-The full vendor Raspberry Pi `config.txt` is not stored as CORVORE
-configuration. Only the M0-specific offline test delta is retained as:
-
-`tools/m0/config-offline.fragment`
+- long-running `corvored`
+- live radio collector
+- Bettercap integration
+- Radio Service / Command Broker
+- hostile-input normalization
+- BSS identity and inferred network grouping
+- pairing and mTLS management channel
+- WebUI
+- Vault
+- GPS / TimeProvider
+- Evidence Engine
+- Workbench
+- update and rollback mechanism
+- final reproducible native image
 
 ## Repository safety
 
 Local operational material is excluded from version control.
 
-This includes, among other things:
+This includes:
 
-- packet captures,
-- generated databases,
-- private keys,
-- local evidence,
-- location datasets,
-- generated OS images,
-- device-specific working data.
+- packet captures
+- generated databases
+- private keys
+- local evidence
+- location datasets
+- generated OS images
+- device-specific working data
 
-`.gitignore` is not a substitute for review or secret scanning.
-
-No real credentials, private captures or location datasets should be
-committed.
+`.gitignore` does not replace manual review or secret scanning.
 
 ## Publication work still open
 
 Before a formal public release:
 
-- select and document the project license,
-- review third-party dependency licenses,
-- establish exact reproducible dependency locking,
-- add automated quality and security checks,
-- complete the remaining engineering milestones.
+- select and document the project license
+- review third-party dependency licenses
+- establish reproducible dependency locking
+- add automated quality and security checks
+- complete the remaining engineering acceptance gates
 
-## Roadmap progress
+Completed engineering gates: **1 / 11**
 
-Closed milestones: **1 / 11**
+## Physical interaction model
 
-- M0: PASS
-- M1-M10: not yet accepted
+The device display is output-only.
+
+CORVORE does not depend on:
+
+- a pointer
+- physical control buttons
+- touch input
+- on-device interactive menus
+
+The field device may present status and telemetry locally, but operator
+control is not performed through the display.
+
+Operator-initiated active assessment functions are exposed only through
+the authenticated local management interface when the device is
+connected to a workstation.
+
+Standalone device operation remains focused on passive collection and
+local persistence.

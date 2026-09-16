@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "status": "frozen",
-  "scope": "clean-native-base-os",
+  "scope": "clean-native-base-system",
   "reference_report_sha256": "06fe79dbcb72382f692e1af50f473eace0fd4982fe52db17e6ef6bdfce088d98",
   "budgets": {
     "boot_seconds_max": 45.0,
