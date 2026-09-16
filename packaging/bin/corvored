@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+
+PYTHONPATH=/opt/corvore/app
+PYTHONDONTWRITEBYTECODE=1
+PYTHONUNBUFFERED=1
+
+export \
+    PYTHONPATH \
+    PYTHONDONTWRITEBYTECODE \
+    PYTHONUNBUFFERED
+
+exec /usr/bin/python3 \
+    -m corvore.daemon \
+    "$@"

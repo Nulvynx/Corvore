@@ -11,6 +11,7 @@ dependencies = []
 
 [project.scripts]
 corvorectl = "corvore.__main__:main"
+corvored = "corvore.daemon:main"
 
 [tool.setuptools.packages.find]
 where = ["node"]

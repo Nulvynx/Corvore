@@ -156,3 +156,19 @@ connected to a workstation.
 
 Standalone device operation remains focused on passive collection and
 local persistence.
+
+## Core runtime boundary
+
+The current runtime work introduces `corvored` as the unprivileged core
+service.
+
+Its intended boundary is:
+
+- persistence lifecycle and migrations
+- durable processing coordination
+- local ephemeral health state
+- no radio privileges
+- no physical-input control
+- no active assessment actions
+
+Privileged radio control remains a separate process boundary.
