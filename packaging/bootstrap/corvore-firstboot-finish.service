@@ -1,0 +1,20 @@
+[Unit]
+Description=CORVORE first boot completion checker
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/corvore/bootstrap/finish-check.py
+TimeoutStartSec=30
+UMask=0077
+
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+NoNewPrivileges=yes
+PrivateNetwork=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/corvore/bootstrap
+
+StandardOutput=journal
+StandardError=journal

@@ -1,0 +1,26 @@
+[Unit]
+Description=CORVORE M0 clean-native idle baseline
+After=local-fs.target
+ConditionPathExists=!/var/lib/corvore/m0-baseline/completed.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/corvore/m0/m0-idle-baseline.py --duration 120 --sample-interval 5
+ExecStartPost=/usr/bin/systemctl --no-block start corvore-m0-idle-shutdown.service
+TimeoutStartSec=180
+UMask=0077
+
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+NoNewPrivileges=yes
+PrivateNetwork=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+
+ReadWritePaths=/var/lib/corvore/m0-baseline
+
+StandardOutput=journal
+StandardError=journal

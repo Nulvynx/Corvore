@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "status": "frozen",
+  "scope": "clean-native-base-os",
+  "reference_report_sha256": "06fe79dbcb72382f692e1af50f473eace0fd4982fe52db17e6ef6bdfce088d98",
+  "budgets": {
+    "boot_seconds_max": 45.0,
+    "idle_cpu_busy_percent_max": 5.0,
+    "idle_iowait_percent_max": 1.0,
+    "idle_memavailable_mib_min": 240.0,
+    "idle_swap_used_mib_max": 0.0,
+    "idle_temperature_c_max": 55.0,
+    "idle_estimated_gib_per_day_max": 0.5,
+    "failed_systemd_units_max": 0,
+    "root_available_gib_min": 50.0
+  },
+  "limitations": {
+    "clock_accuracy_verified": false,
+    "radio_profile": "wifi_and_bluetooth_temporarily_disabled",
+    "write_rate_is_short_window_extrapolation": true,
+    "production_runtime_validated": false
+  }
+}

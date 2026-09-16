@@ -1,0 +1,10 @@
+# CORVORE M0 acceptance-only Raspberry Pi config.txt fragment.
+#
+# This is NOT the production radio configuration.
+# It was used only to keep the M0 clean-native resource baseline
+# offline and to prevent radio activity from contaminating the
+# base-system measurement.
+
+[all]
+dtoverlay=disable-wifi
+dtoverlay=disable-bt

@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=77,<78"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "corvore"
+version = "0.0.0.dev0"
+description = "Offline-first field appliance foundation"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+corvorectl = "corvore.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["node"]
+include = ["corvore*"]

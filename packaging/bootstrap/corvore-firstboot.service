@@ -1,0 +1,29 @@
+[Unit]
+Description=CORVORE native first boot acceptance
+After=local-fs.target
+RequiresMountsFor=/var/lib/corvore/bootstrap
+ConditionPathExists=!/var/lib/corvore/bootstrap/completed.json
+
+[Service]
+Type=oneshot
+
+ExecStart=/usr/bin/python3 /opt/corvore/bootstrap/firstboot.py
+
+TimeoutStartSec=120
+UMask=0077
+
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+NoNewPrivileges=yes
+PrivateNetwork=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+
+ReadWritePaths=/var/lib/corvore/bootstrap
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

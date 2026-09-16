@@ -1,0 +1,34 @@
+# Python and local tooling
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
+
+# Local configuration and sensitive operational data
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pcap
+*.pcapng
+*.cap
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+/local-data/
+/local-backups/
+/local-evidence/
+/local-gps/
+/local-vault/
+
+# Generated images
+*.img
+*.img.xz
+*.img.gz

@@ -1,0 +1,11 @@
+[Unit]
+Description=CORVORE first boot completion timer
+
+[Timer]
+OnBootSec=4min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Unit=corvore-firstboot-finish.service
+
+[Install]
+WantedBy=timers.target
