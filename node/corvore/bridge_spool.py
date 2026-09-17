@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import sqlite3
 import stat
+import time
 from typing import Callable
 import uuid
 
@@ -27,7 +28,7 @@ from corvore.ingress import send_event
 DEFAULT_MAX_EVENTS = 2048
 DEFAULT_MAX_BYTES = 16 * 1024 * 1024
 SPOOL_APPLICATION_ID = 0x43565251  # CVRQ
-SPOOL_USER_VERSION = 1
+SPOOL_USER_VERSION = 2
 
 
 class SpoolError(RuntimeError):
@@ -36,10 +37,6 @@ class SpoolError(RuntimeError):
 
 class SpoolFullError(SpoolError):
     """Bounded spool cannot accept another emission; fail without dropping."""
-
-
-class SpoolBootMismatch(SpoolError):
-    """The current ingress v2 contract cannot replay across Linux boots."""
 
 
 class SpoolDeliveryRejected(SpoolError):
@@ -53,6 +50,7 @@ class PendingDelivery:
     boot_id: str
     source_instance: str
     raw_event: bytes
+    origin_monotonic_ns: int
 
 
 def _linux_boot_id() -> str:
@@ -191,10 +189,32 @@ class DurableEventSpool:
                     boot_id TEXT NOT NULL,
                     source_instance TEXT NOT NULL,
                     raw_event BLOB NOT NULL,
+                    origin_monotonic_ns INTEGER NOT NULL
+                        CHECK(origin_monotonic_ns >= 0),
                     sha256 TEXT NOT NULL,
                     event_bytes INTEGER NOT NULL CHECK(event_bytes > 0)
                 )''')
                 db.execute(f'PRAGMA application_id={SPOOL_APPLICATION_ID}')
+                db.execute(f'PRAGMA user_version={SPOOL_USER_VERSION}')
+                db.execute('COMMIT')
+            except BaseException:
+                db.execute('ROLLBACK')
+                raise
+        elif version == 1 and application_id == SPOOL_APPLICATION_ID:
+            # Existing v1 records have no trustworthy original
+            # monotonic timestamp. Do not invent one or drop records.
+            if db.execute('SELECT COUNT(*) FROM pending').fetchone()[0]:
+                raise SpoolError(
+                    'legacy v1 spool has pending records; '
+                    'manual recovery is required'
+                )
+            db.execute('BEGIN IMMEDIATE')
+            try:
+                db.execute(
+                    'ALTER TABLE pending ADD COLUMN '
+                    'origin_monotonic_ns INTEGER NOT NULL DEFAULT 0 '
+                    'CHECK(origin_monotonic_ns >= 0)'
+                )
                 db.execute(f'PRAGMA user_version={SPOOL_USER_VERSION}')
                 db.execute('COMMIT')
             except BaseException:
@@ -206,7 +226,7 @@ class DurableEventSpool:
             raise SpoolError('spool database integrity check failed')
         expected_columns = {
             'seq', 'delivery_id', 'boot_id', 'source_instance',
-            'raw_event', 'sha256', 'event_bytes',
+            'raw_event', 'origin_monotonic_ns', 'sha256', 'event_bytes',
         }
         if {row[1] for row in db.execute('PRAGMA table_info(pending)')} != expected_columns:
             raise SpoolError('spool schema differs from expected columns')
@@ -247,6 +267,7 @@ class DurableEventSpool:
         from corvore.ingress import encode_event_frame
         boot_id = _canonical_uuid4(self.boot_id_provider(), 'boot_id')
         delivery_id = str(uuid.uuid4())
+        origin_monotonic_ns = time.monotonic_ns()
         encode_event_frame(raw_event, source_instance=source_instance, delivery_id=delivery_id)
         size = len(raw_event)
         db = self._connection()
@@ -258,9 +279,11 @@ class DurableEventSpool:
             if count >= self.max_events or total + size > self.max_bytes:
                 raise SpoolFullError('spool full: upstream collection must pause')
             db.execute('''INSERT INTO pending
-                (delivery_id, boot_id, source_instance, raw_event, sha256, event_bytes)
-                VALUES (?, ?, ?, ?, ?, ?)''',
                 (delivery_id, boot_id, source_instance, raw_event,
+                 origin_monotonic_ns, sha256, event_bytes)
+                VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                (delivery_id, boot_id, source_instance, raw_event,
+                 origin_monotonic_ns,
                  hashlib.sha256(raw_event).hexdigest(), size))
             db.execute('COMMIT')
         except BaseException:
@@ -270,7 +293,8 @@ class DurableEventSpool:
 
     def peek(self) -> PendingDelivery | None:
         row = self._connection().execute('''SELECT seq, delivery_id, boot_id,
-             source_instance, raw_event, sha256, event_bytes
+             source_instance, raw_event, origin_monotonic_ns,
+             sha256, event_bytes
              FROM pending ORDER BY seq LIMIT 1''').fetchone()
         if row is None:
             return None
@@ -280,10 +304,14 @@ class DurableEventSpool:
             raise SpoolError('queued event integrity mismatch')
         _canonical_uuid4(row['delivery_id'], 'delivery_id')
         _canonical_uuid4(row['boot_id'], 'boot_id')
+        captured = row['origin_monotonic_ns']
+        if type(captured) is not int or not 0 <= captured <= 2**63 - 1:
+            raise SpoolError('invalid queued origin timestamp')
         return PendingDelivery(
             seq=int(row['seq']), delivery_id=row['delivery_id'],
             boot_id=row['boot_id'], source_instance=row['source_instance'],
             raw_event=raw,
+            origin_monotonic_ns=captured,
         )
 
     def dispatch_one(
@@ -300,15 +328,12 @@ class DurableEventSpool:
         entry = self.peek()
         if entry is None:
             return False
-        if _canonical_uuid4(self.boot_id_provider(), 'boot_id') != entry.boot_id:
-            raise SpoolBootMismatch(
-                'queued event originates from a previous boot; ingress v2 '
-                'cannot preserve its boot identity. Retained, not replayed.'
-            )
         response = sender(
             socket_path, entry.raw_event,
             source_instance=entry.source_instance,
             delivery_id=entry.delivery_id,
+            origin_boot_id=entry.boot_id,
+            origin_monotonic_ns=entry.origin_monotonic_ns,
         )
         if not isinstance(response, dict) or response.get('status') != 'committed':
             raise SpoolDeliveryRejected('ingress did not commit queued event')

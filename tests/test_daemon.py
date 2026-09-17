@@ -215,6 +215,8 @@ class DaemonLifecycleTests(
             }),
             source_instance="wlan0",
             delivery_id="e31575a3-8721-496a-b8d2-2f037a7c2c6e",
+            origin_boot_id=running["boot_id"],
+            origin_monotonic_ns=time.monotonic_ns(),
         )
 
         self.assertEqual(

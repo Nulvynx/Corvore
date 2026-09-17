@@ -81,7 +81,7 @@ class IngressProtocolTests(unittest.TestCase):
         header = json.dumps({
             "message_type":
                 "bettercap_event",
-            "schema_version": 2,
+            "schema_version": 3,
             "source_instance":
                 "wlan0",
             "delivery_id": DELIVERY_ID,
@@ -180,6 +180,7 @@ class IngressServerTests(unittest.TestCase):
             boot_id=BOOT_ID,
             allowed_uid=allowed_uid,
             stop_event=stop,
+            require_origin=False,
         )
 
         thread = threading.Thread(

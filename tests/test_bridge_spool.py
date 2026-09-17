@@ -11,7 +11,6 @@ import uuid
 
 from corvore.bridge_spool import (
     DurableEventSpool,
-    SpoolBootMismatch,
     SpoolDeliveryRejected,
     SpoolError,
     SpoolFullError,
@@ -46,7 +45,8 @@ class SpoolTests(unittest.TestCase):
         )
 
     @staticmethod
-    def committed(_socket, _raw, *, source_instance, delivery_id):
+    def committed(_socket, _raw, *, source_instance, delivery_id,
+                  **_provenance):
         return {
             'status': 'committed', 'ingest_seq': 17,
             'observation_id': deterministic_observation_id(
@@ -88,7 +88,8 @@ class SpoolTests(unittest.TestCase):
         seen = []
         with self.open_spool() as spool:
             delivery_id = spool.enqueue(event_bytes(), source_instance='wlan0')
-            def lost_ack(path, raw, *, source_instance, delivery_id):
+            def lost_ack(path, raw, *, source_instance, delivery_id,
+                         **_provenance):
                 seen.append(delivery_id)
                 self.committed(path, raw, source_instance=source_instance,
                                delivery_id=delivery_id)
@@ -119,15 +120,23 @@ class SpoolTests(unittest.TestCase):
                     spool.dispatch_one('/unused', sender=sender)
                 self.assertEqual(spool.pending_count(), 1)
 
-    def test_cross_boot_replay_is_blocked_without_deleting(self):
+    def test_cross_boot_replay_preserves_original_provenance(self):
         with self.open_spool() as spool:
             delivery_id = spool.enqueue(event_bytes(), source_instance='wlan0')
+            original = spool.peek()
         self.boot = BOOT_B
         with self.open_spool() as spool:
-            with self.assertRaises(SpoolBootMismatch):
+            current = spool.peek()
+            self.assertEqual(current.delivery_id, delivery_id)
+            self.assertEqual(current.boot_id, BOOT_A)
+            self.assertEqual(
+                current.origin_monotonic_ns,
+                original.origin_monotonic_ns,
+            )
+            self.assertTrue(
                 spool.dispatch_one('/unused', sender=self.committed)
-            self.assertEqual(spool.peek().delivery_id, delivery_id)
-            self.assertEqual(spool.pending_count(), 1)
+            )
+            self.assertEqual(spool.pending_count(), 0)
 
     def test_full_queue_is_fail_closed_without_drop(self):
         with self.open_spool(max_events=1) as spool:

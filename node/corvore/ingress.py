@@ -26,7 +26,7 @@ from corvore.storage import (
 )
 
 
-INGRESS_SCHEMA_VERSION = 2
+INGRESS_SCHEMA_VERSION = 3
 
 MAX_HEADER_BYTES = 1024
 
@@ -77,6 +77,36 @@ def _validate_delivery_id(value: str) -> str:
     return value
 
 
+def _validate_origin(
+    origin_boot_id: str | None,
+    origin_monotonic_ns: int | None,
+) -> tuple[str, int] | None:
+    if origin_boot_id is None and origin_monotonic_ns is None:
+        return None
+
+    if origin_boot_id is None or origin_monotonic_ns is None:
+        raise IngressProtocolError("incomplete event provenance")
+
+    if not isinstance(origin_boot_id, str):
+        raise IngressProtocolError("invalid origin boot ID")
+
+    try:
+        parsed = uuid.UUID(origin_boot_id)
+    except (ValueError, AttributeError) as exc:
+        raise IngressProtocolError("invalid origin boot ID") from exc
+
+    if parsed.version != 4 or str(parsed) != origin_boot_id:
+        raise IngressProtocolError("origin boot ID must be canonical UUIDv4")
+
+    if (
+        type(origin_monotonic_ns) is not int
+        or not 0 <= origin_monotonic_ns <= 2**63 - 1
+    ):
+        raise IngressProtocolError("invalid origin monotonic timestamp")
+
+    return origin_boot_id, origin_monotonic_ns
+
+
 def _event_bytes(
     raw_event: bytes | str,
 ) -> bytes:
@@ -116,6 +146,8 @@ def encode_event_frame(
     *,
     source_instance: str,
     delivery_id: str,
+    origin_boot_id: str | None = None,
+    origin_monotonic_ns: int | None = None,
 ) -> bytes:
     source_instance = (
         _validate_source_instance(
@@ -124,6 +156,15 @@ def encode_event_frame(
     )
 
     delivery_id = _validate_delivery_id(delivery_id)
+    origin = _validate_origin(origin_boot_id, origin_monotonic_ns)
+    origin_fields = (
+        {
+            "origin_boot_id": origin[0],
+            "origin_monotonic_ns": origin[1],
+        }
+        if origin is not None
+        else {}
+    )
     event = _event_bytes(raw_event)
 
     header = json.dumps(
@@ -136,6 +177,7 @@ def encode_event_frame(
                 source_instance,
             "delivery_id":
                 delivery_id,
+            **origin_fields,
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -162,9 +204,9 @@ def encode_event_frame(
     return frame
 
 
-def decode_event_frame(
+def _decode_event_frame_with_origin(
     frame: bytes,
-) -> tuple[str, str, bytes]:
+) -> tuple[str, str, bytes, tuple[str, int] | None]:
     if not isinstance(frame, bytes):
         raise IngressProtocolError(
             "ingress frame must be bytes"
@@ -218,12 +260,15 @@ def decode_event_frame(
             "ingress header must be an object"
         )
 
-    if set(header) != {
+    base_fields = {
         "message_type",
         "schema_version",
         "source_instance",
         "delivery_id",
-    }:
+    }
+    origin_fields = {"origin_boot_id", "origin_monotonic_ns"}
+
+    if set(header) not in (base_fields, base_fields | origin_fields):
         raise IngressProtocolError(
             "ingress header fields are invalid"
         )
@@ -264,11 +309,24 @@ def decode_event_frame(
 
     delivery_id = _validate_delivery_id(header["delivery_id"])
 
+    origin = _validate_origin(
+        header.get("origin_boot_id"),
+        header.get("origin_monotonic_ns"),
+    )
+
     return (
         source_instance,
         delivery_id,
         event,
+        origin,
     )
+
+
+def decode_event_frame(frame: bytes) -> tuple[str, str, bytes]:
+    source, delivery_id, event, _origin = (
+        _decode_event_frame_with_origin(frame)
+    )
+    return source, delivery_id, event
 
 
 def _response_bytes(
@@ -435,6 +493,7 @@ class IngressServer:
         allowed_uid: int,
         stop_event: threading.Event,
         socket_gid: int | None = None,
+        require_origin: bool = True,
     ) -> None:
         if (
             not isinstance(allowed_uid, int)
@@ -465,6 +524,10 @@ class IngressServer:
         self.allowed_uid = allowed_uid
         self.socket_gid = socket_gid
         self.stop_event = stop_event
+
+        if type(require_origin) is not bool:
+            raise ValueError("require_origin must be bool")
+        self.require_origin = require_origin
 
         self.ready_event = threading.Event()
         self.failure: Exception | None = None
@@ -613,9 +676,18 @@ class IngressServer:
                 source_instance,
                 delivery_id,
                 raw_event,
-            ) = decode_event_frame(
-                frame
-            )
+                origin,
+            ) = _decode_event_frame_with_origin(frame)
+
+            if origin is None:
+                if self.require_origin:
+                    raise IngressProtocolError(
+                        "origin provenance is required"
+                    )
+                origin_boot_id = self.boot_id
+                origin_monotonic_ns = time.monotonic_ns()
+            else:
+                origin_boot_id, origin_monotonic_ns = origin
 
             event = parse_bettercap_event(
                 raw_event
@@ -623,14 +695,12 @@ class IngressServer:
 
             observation = build_observation(
                 event,
-                boot_id=self.boot_id,
+                boot_id=origin_boot_id,
                 source_instance=(
                     source_instance
                 ),
                 delivery_id=delivery_id,
-                monotonic_ns=(
-                    time.monotonic_ns()
-                ),
+                monotonic_ns=origin_monotonic_ns,
             )
 
         except (
@@ -756,12 +826,16 @@ def send_event(
     *,
     source_instance: str,
     delivery_id: str,
+    origin_boot_id: str | None = None,
+    origin_monotonic_ns: int | None = None,
     timeout: float = 2.0,
 ) -> dict[str, Any]:
     frame = encode_event_frame(
         raw_event,
         source_instance=source_instance,
         delivery_id=delivery_id,
+        origin_boot_id=origin_boot_id,
+        origin_monotonic_ns=origin_monotonic_ns,
     )
 
     client = socket.socket(

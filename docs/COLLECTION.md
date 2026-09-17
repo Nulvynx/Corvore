@@ -73,15 +73,12 @@ as two observations. A retry of the same emission maps to the original
 `ingest_seq`. Reuse of one `delivery_id` with different content is
 rejected, without terminating the ingress daemon.
 
-A bounded, durable bridge-side retry spool is available as a library.
-Its live Bettercap source adapter and production service wiring have not
-been implemented; end-to-end delivery is **not** yet validated. The spool
-persists each new emission before delivery and retains exact event bytes
-and `delivery_id` until the core returns a matching committed ACK.
-The current ingress version 2 derives identity from the *receiving*
-Linux boot and cannot safely replay records from an earlier boot. The
-spool explicitly retains and blocks those records until the protocol
-carries original boot/monotonic provenance. Do not discard them silently.
+A bounded, durable bridge-side retry spool and a live Bettercap
+source adapter are implemented as libraries/process code. Production
+service wiring and end-to-end live RF delivery are not yet validated.
+The spool retains exact event bytes, delivery identity, original Linux
+boot ID and bridge-capture monotonic timestamp until a matching ACK.
+Ingress v3 preserves this provenance across device restarts.
 
 ## Process separation
 
@@ -101,10 +98,13 @@ collection.
 ## Transport
 
 The passive transport uses a local Unix-domain `SOCK_SEQPACKET`
-message boundary with bounded frames. The protocol schema is version 2.
-Its exact JSON header contains `message_type`, `schema_version`,
-`source_instance`, and canonical UUIDv4 `delivery_id`, followed by a
-newline and the raw event bytes. Version 1 senders are rejected.
+message boundary with bounded frames. The protocol schema is version 3.
+The production header contains `message_type`, `schema_version`,
+`source_instance`, canonical UUIDv4 `delivery_id`, `origin_boot_id` and
+`origin_monotonic_ns`, followed by a newline and the raw event bytes.
+Versions 1 and 2 are rejected. The direct ingress test harness can
+explicitly permit v3 frames without origin fields; production ingress
+requires both fields.
 
 The core validates the connecting process identity through Linux
 `SO_PEERCRED` and accepts collection traffic only from the configured
@@ -128,7 +128,7 @@ a claim that every event forced an immediate physical-media flush.
 If an acknowledgement is lost after commit, retransmission is safe:
 reuse of the original delivery identity maps the event back to the
 existing `ingest_seq` rather than creating a second observation. The
-original persisted monotonic receive timestamp remains unchanged.
+original persisted bridge-capture monotonic timestamp remains unchanged.
 
 Transport failure must not cause the core to fabricate observations.
 
@@ -148,19 +148,19 @@ presence of a radio. It does not run Bettercap or change radio state.
 - FIFO delivery removes a record only after a committed ACK with the
   expected observation identifier and positive ingestion sequence.
   Transport errors, invalid ACKs, and rejections retain the record.
-- Process crash/restart in the **same Linux boot** preserves queued
-  events and original delivery IDs. A crash between the core commit and
-  queue deletion results in idempotent retransmission in that boot.
-- With ingress protocol v2, an unacknowledged record from a *previous*
-  Linux boot MUST NOT be retransmitted: the core would compute a
-  different observation identifier and could duplicate or misattribute
-  an observation. The spool detects this and fails closed without deleting.
+- The queue preserves event bytes, delivery IDs and original boot and
+  monotonic provenance across a bridge or whole-device restart. A crash
+  between core commit and queue deletion results in idempotent retry,
+  including after reboot.
+- A v1 spool with pending records cannot be migrated automatically:
+  those records lack trusted monotonic capture timestamps. Migration
+  fails closed without deleting them. An empty v1 spool upgrades to v2.
 - A full spool raises an error; a future live source must stop/pause or
   apply an explicitly documented backpressure strategy. No automatic
   eviction, dropping, or synthetic replacement is permitted.
 
 The queue alone cannot guarantee events emitted upstream before enqueue,
-whole-device reboot replay, or absolute physical-media durability. The
+an event lost upstream, or absolute physical-media durability. The
 Bettercap version, live event-source framing, collector service isolation,
 regulatory controls, and real-radio operation still require acceptance.
 
@@ -200,6 +200,6 @@ durable enqueue. Source-side disconnection, upstream buffer overflow,
 and the initial-buffer/listener transition may lose events before
 they reach the CORVORE spool. Do not claim end-to-end lossless capture.
 
-Ingress v2 also remains unable to replay events across a whole-device
-reboot. The spool retains and blocks such records rather than
-silently duplicating or discarding them.
+Ingress v3 carries original boot and monotonic provenance and permits
+idempotent retry across a whole-device reboot. This is validated by
+software tests, not yet by a power-loss test on the appliance.
