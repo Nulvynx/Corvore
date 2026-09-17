@@ -9,6 +9,9 @@ description = "Offline-first field appliance foundation"
 requires-python = ">=3.11"
 dependencies = []
 
+[project.optional-dependencies]
+bettercap-bridge = ["websockets>=15,<17"]
+
 [project.scripts]
 corvorectl = "corvore.__main__:main"
 corvored = "corvore.daemon:main"

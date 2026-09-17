@@ -170,3 +170,36 @@ Normal field operation depends on live radio collection.
 
 Replay data, synthetic observations and test fixtures are not runtime
 dependencies.
+
+## Live Bettercap WebSocket bridge
+
+`corvore.bridge_source` provides a live-only adapter for Bettercap's
+`/api/events` WebSocket. It accepts only the loopback endpoint
+`ws://127.0.0.1:<configured-port>/api/events`, uses HTTP Basic
+authentication from a collector-owned private credentials file, and
+does not expose Bettercap command execution.
+
+Only allowlisted passive Wi-Fi events are validated and enqueued.
+Other module events are ignored, not stored. A message is bounded to
+64 KiB, and the WebSocket client uses a one-frame receive queue.
+
+At startup, the bridge attempts to drain older queued events before
+opening the live source. Every newly received passive event is
+persisted to the durable spool before attempting ingress delivery.
+A failed delivery retains the queued event and terminates the process.
+
+This is a source adapter and bridge process implementation, not a
+validated field deployment. It is not installed or started
+automatically. The optional `bettercap-bridge` Python dependency,
+dedicated UID and network namespace, secret provisioning, pinned
+Bettercap version, service supervision, and compatible RF adapter
+still require deployment and acceptance.
+
+Bettercap's WebSocket does not acknowledge each event after CORVORE's
+durable enqueue. Source-side disconnection, upstream buffer overflow,
+and the initial-buffer/listener transition may lose events before
+they reach the CORVORE spool. Do not claim end-to-end lossless capture.
+
+Ingress v2 also remains unable to replay events across a whole-device
+reboot. The spool retains and blocks such records rather than
+silently duplicating or discarding them.
