@@ -289,6 +289,15 @@ def main() -> int:
         epoch=args.epoch,
     )
 
+    copy_file(
+        source_root
+        / "packaging/cloud/cloud-init.disabled",
+        output
+        / "etc/cloud/cloud-init.disabled",
+        mode=0o644,
+        epoch=args.epoch,
+    )
+
     write_manifest(
         output,
         epoch=args.epoch,

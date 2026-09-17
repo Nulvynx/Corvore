@@ -101,6 +101,7 @@ The core runtime uses the following image layout:
 - `/usr/local/bin/corvorectl` — local administration launcher
 - `/usr/lib/systemd/system/corvored.service` — service definition
 - `/usr/lib/sysusers.d/corvore.conf` — dedicated system identity
+- `/etc/cloud/cloud-init.disabled` — disables first-boot provisioning in the field runtime
 - `/usr/share/doc/corvore/RUNTIME.md` — installed runtime contract
 
 Persistent and ephemeral writable paths remain separate:
@@ -110,3 +111,11 @@ Persistent and ephemeral writable paths remain separate:
 
 The runtime overlay is built offline and does not require `pip` or network
 access on the field device.
+
+## Provisioning lifecycle
+
+Cloud-init is not part of the field runtime lifecycle.
+
+Provisioning must be completed before the device enters normal operation.
+The deployed image contains `/etc/cloud/cloud-init.disabled` so cloud-init
+does not execute during subsequent appliance boots.
