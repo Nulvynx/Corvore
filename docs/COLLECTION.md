@@ -73,9 +73,15 @@ as two observations. A retry of the same emission maps to the original
 `ingest_seq`. Reuse of one `delivery_id` with different content is
 rejected, without terminating the ingress daemon.
 
-The bridge's crash-recovery and durable retry queue are not yet
-implemented. The current transport contract does not establish
-at-least-once delivery across a bridge or whole-device crash.
+A bounded, durable bridge-side retry spool is available as a library.
+Its live Bettercap source adapter and production service wiring have not
+been implemented; end-to-end delivery is **not** yet validated. The spool
+persists each new emission before delivery and retains exact event bytes
+and `delivery_id` until the core returns a matching committed ACK.
+The current ingress version 2 derives identity from the *receiving*
+Linux boot and cannot safely replay records from an earlier boot. The
+spool explicitly retains and blocks those records until the protocol
+carries original boot/monotonic provenance. Do not discard them silently.
 
 ## Process separation
 
@@ -125,6 +131,38 @@ existing `ingest_seq` rather than creating a second observation. The
 original persisted monotonic receive timestamp remains unchanged.
 
 Transport failure must not cause the core to fabricate observations.
+
+## Bridge retry spool (library; not field-ready)
+
+`corvore.bridge_spool.DurableEventSpool` runs under the future dedicated
+collector UID. It is neither started by `corvored` nor activated by the
+presence of a radio. It does not run Bettercap or change radio state.
+
+- SQLite WAL with `synchronous=FULL` records each validated source emission
+  before the first ingress send; a UUIDv4 `delivery_id` is created exactly
+  once at enqueue time.
+- Its private directory and files are restricted to their owning UID.
+  A nonblocking advisory lock permits one spool owner per directory.
+- Default *pending event payload* limits: 2,048 items and 16 MiB.
+  These are **not** an overall filesystem-write or WAL-size budget.
+- FIFO delivery removes a record only after a committed ACK with the
+  expected observation identifier and positive ingestion sequence.
+  Transport errors, invalid ACKs, and rejections retain the record.
+- Process crash/restart in the **same Linux boot** preserves queued
+  events and original delivery IDs. A crash between the core commit and
+  queue deletion results in idempotent retransmission in that boot.
+- With ingress protocol v2, an unacknowledged record from a *previous*
+  Linux boot MUST NOT be retransmitted: the core would compute a
+  different observation identifier and could duplicate or misattribute
+  an observation. The spool detects this and fails closed without deleting.
+- A full spool raises an error; a future live source must stop/pause or
+  apply an explicitly documented backpressure strategy. No automatic
+  eviction, dropping, or synthetic replacement is permitted.
+
+The queue alone cannot guarantee events emitted upstream before enqueue,
+whole-device reboot replay, or absolute physical-media durability. The
+Bettercap version, live event-source framing, collector service isolation,
+regulatory controls, and real-radio operation still require acceptance.
 
 ## Runtime policy
 
