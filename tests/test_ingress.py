@@ -26,6 +26,8 @@ BOOT_ID = (
     "11111111-2222-3333-4444-"
     "555555555555"
 )
+DELIVERY_ID = "e31575a3-8721-496a-b8d2-2f037a7c2c6e"
+OTHER_DELIVERY_ID = "3b860d5f-ed59-481d-a182-a6b7943dd4b8"
 
 
 def valid_event():
@@ -51,10 +53,12 @@ class IngressProtocolTests(unittest.TestCase):
         frame = encode_event_frame(
             raw,
             source_instance="wlan0",
+            delivery_id=DELIVERY_ID,
         )
 
         (
             source,
+            delivery_id,
             decoded,
         ) = decode_event_frame(
             frame
@@ -65,6 +69,7 @@ class IngressProtocolTests(unittest.TestCase):
             "wlan0",
         )
 
+        self.assertEqual(delivery_id, DELIVERY_ID)
         self.assertEqual(
             decoded,
             raw,
@@ -76,9 +81,10 @@ class IngressProtocolTests(unittest.TestCase):
         header = json.dumps({
             "message_type":
                 "bettercap_event",
-            "schema_version": 1,
+            "schema_version": 2,
             "source_instance":
                 "wlan0",
+            "delivery_id": DELIVERY_ID,
             "unexpected": True,
         }).encode("utf-8")
 
@@ -108,6 +114,15 @@ class IngressProtocolTests(unittest.TestCase):
                     + 1
                 ),
                 source_instance="wlan0",
+                delivery_id=DELIVERY_ID,
+            )
+
+    def test_invalid_delivery_id_is_rejected(self):
+        with self.assertRaises(IngressProtocolError):
+            encode_event_frame(
+                json.dumps(valid_event()),
+                source_instance="wlan0",
+                delivery_id="invalid",
             )
 
 
@@ -206,6 +221,7 @@ class IngressServerTests(unittest.TestCase):
             self.socket_path,
             json.dumps(valid_event()),
             source_instance="wlan0",
+            delivery_id=DELIVERY_ID,
         )
 
         self.assertEqual(
@@ -247,6 +263,7 @@ class IngressServerTests(unittest.TestCase):
         frame = encode_event_frame(
             raw,
             source_instance="wlan0",
+            delivery_id=DELIVERY_ID,
         )
 
         client = socket.socket(
@@ -306,6 +323,7 @@ class IngressServerTests(unittest.TestCase):
             self.socket_path,
             raw,
             source_instance="wlan0",
+            delivery_id=DELIVERY_ID,
         )
 
         self.assertEqual(
@@ -328,6 +346,46 @@ class IngressServerTests(unittest.TestCase):
             1,
         )
 
+    def test_identical_source_emissions_are_distinct(self):
+        self._start_server()
+        raw = json.dumps(valid_event())
+        first = send_event(
+            self.socket_path, raw,
+            source_instance="wlan0", delivery_id=DELIVERY_ID,
+        )
+        second = send_event(
+            self.socket_path, raw,
+            source_instance="wlan0", delivery_id=OTHER_DELIVERY_ID,
+        )
+        self.assertEqual(first["status"], "committed")
+        self.assertEqual(second["status"], "committed")
+        self.assertNotEqual(first["ingest_seq"], second["ingest_seq"])
+        self.assertNotEqual(first["observation_id"], second["observation_id"])
+        self.assertEqual(
+            len(read_observations_after(self.state, after_ingest_seq=0)),
+            2,
+        )
+
+    def test_reused_delivery_id_with_changed_payload_rejected(self):
+        _, _, server = self._start_server()
+        first = send_event(
+            self.socket_path, json.dumps(valid_event()),
+            source_instance="wlan0", delivery_id=DELIVERY_ID,
+        )
+        changed = valid_event()
+        changed["data"]["rssi"] = -90
+        conflict = send_event(
+            self.socket_path, json.dumps(changed),
+            source_instance="wlan0", delivery_id=DELIVERY_ID,
+        )
+        self.assertEqual(first["status"], "committed")
+        self.assertEqual(conflict["status"], "rejected")
+        self.assertIsNone(server.failure)
+        self.assertEqual(
+            len(read_observations_after(self.state, after_ingest_seq=0)),
+            1,
+        )
+
     def test_invalid_event_is_rejected_without_persistence(
         self,
     ):
@@ -340,6 +398,7 @@ class IngressServerTests(unittest.TestCase):
             self.socket_path,
             json.dumps(value),
             source_instance="wlan0",
+            delivery_id=DELIVERY_ID,
         )
 
         self.assertEqual(
@@ -374,6 +433,7 @@ class IngressServerTests(unittest.TestCase):
                     valid_event()
                 ),
                 source_instance="wlan0",
+                delivery_id=DELIVERY_ID,
             )
 
         rows = read_observations_after(

@@ -58,16 +58,24 @@ TimeProvider.
 
 ## Observation identity
 
-A deterministic observation identifier is derived from:
+Each independently emitted Bettercap event receives a fresh, canonical
+UUIDv4 `delivery_id` at the trusted event bridge. The bridge MUST retain
+the original ID and exact event bytes for any retransmission after a
+missing acknowledgement. It MUST NOT mint a new ID inside a retry loop.
 
-- Linux boot identity
-- collector source instance
-- canonical source event hash
+The observation identifier is UUIDv5 over Linux boot identity, collector
+source instance, and `delivery_id`. The canonical event SHA-256 remains
+part of the observation payload and participates in the persistence
+integrity check; it is **not** the event identity.
 
-This allows repeated delivery of the same Bettercap event within one
-boot to map to the same observation identity.
+Two distinct emissions with byte-identical contents therefore persist
+as two observations. A retry of the same emission maps to the original
+`ingest_seq`. Reuse of one `delivery_id` with different content is
+rejected, without terminating the ingress daemon.
 
-Events observed on different boots remain distinct.
+The bridge's crash-recovery and durable retry queue are not yet
+implemented. The current transport contract does not establish
+at-least-once delivery across a bridge or whole-device crash.
 
 ## Process separation
 
@@ -87,7 +95,10 @@ collection.
 ## Transport
 
 The passive transport uses a local Unix-domain `SOCK_SEQPACKET`
-message boundary with bounded frames.
+message boundary with bounded frames. The protocol schema is version 2.
+Its exact JSON header contains `message_type`, `schema_version`,
+`source_instance`, and canonical UUIDv4 `delivery_id`, followed by a
+newline and the raw event bytes. Version 1 senders are rejected.
 
 The core validates the connecting process identity through Linux
 `SO_PEERCRED` and accepts collection traffic only from the configured
@@ -109,7 +120,7 @@ transport acknowledgement is therefore a commit acknowledgement, not
 a claim that every event forced an immediate physical-media flush.
 
 If an acknowledgement is lost after commit, retransmission is safe:
-the deterministic observation identity maps the event back to the
+reuse of the original delivery identity maps the event back to the
 existing `ingest_seq` rather than creating a second observation. The
 original persisted monotonic receive timestamp remains unchanged.
 

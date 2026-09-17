@@ -279,35 +279,35 @@ def parse_bettercap_event(
     )
 
 
+def _validate_delivery_id(value: str) -> str:
+    if not isinstance(value, str):
+        raise CollectorEventError("delivery_id must be a UUIDv4 string")
+
+    try:
+        parsed = uuid.UUID(value)
+    except (ValueError, AttributeError) as exc:
+        raise CollectorEventError("delivery_id must be a UUIDv4 string") from exc
+
+    if parsed.version != 4 or str(parsed) != value:
+        raise CollectorEventError("delivery_id must be a canonical UUIDv4")
+
+    return value
+
+
 def deterministic_observation_id(
-    event: BettercapEvent,
     *,
     boot_id: str,
     source_instance: str,
+    delivery_id: str,
 ) -> str:
-    boot_id = _validate_identifier(
-        "boot_id",
-        boot_id,
-    )
+    boot_id = _validate_identifier("boot_id", boot_id)
+    source_instance = _validate_identifier("source_instance", source_instance)
+    delivery_id = _validate_delivery_id(delivery_id)
 
-    source_instance = _validate_identifier(
-        "source_instance",
-        source_instance,
-    )
-
-    name = (
-        "corvore:bettercap:"
-        f"{boot_id}:"
-        f"{source_instance}:"
-        f"{event.canonical_sha256}"
-    )
-
-    return str(
-        uuid.uuid5(
-            uuid.NAMESPACE_URL,
-            name,
-        )
-    )
+    # A new source emission gets a new ID even if payload bytes match.
+    # A retransmission MUST reuse its original delivery_id.
+    name = f"corvore:bettercap:{boot_id}:{source_instance}:{delivery_id}"
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, name))
 
 
 def build_observation(
@@ -315,6 +315,7 @@ def build_observation(
     *,
     boot_id: str,
     source_instance: str,
+    delivery_id: str,
     monotonic_ns: int,
 ) -> dict[str, Any]:
     boot_id = _validate_identifier(
@@ -357,8 +358,8 @@ def build_observation(
         "clock_accuracy_verified": False,
         "observation_id":
             deterministic_observation_id(
-                event,
                 boot_id=boot_id,
                 source_instance=source_instance,
+                delivery_id=delivery_id,
             ),
     }

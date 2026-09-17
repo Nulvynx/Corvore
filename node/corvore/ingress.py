@@ -12,6 +12,7 @@ import struct
 import threading
 import time
 from typing import Any
+import uuid
 
 from corvore.collector import (
     CollectorEventError,
@@ -21,10 +22,11 @@ from corvore.collector import (
 )
 from corvore.storage import (
     append_observation_idempotent,
+    ObservationIntegrityError,
 )
 
 
-INGRESS_SCHEMA_VERSION = 1
+INGRESS_SCHEMA_VERSION = 2
 
 MAX_HEADER_BYTES = 1024
 
@@ -60,6 +62,18 @@ def _validate_source_instance(
             "source_instance is invalid"
         )
 
+    return value
+
+
+def _validate_delivery_id(value: str) -> str:
+    if not isinstance(value, str):
+        raise IngressProtocolError("delivery_id must be a UUIDv4 string")
+    try:
+        parsed = uuid.UUID(value)
+    except (ValueError, AttributeError) as exc:
+        raise IngressProtocolError("delivery_id must be a UUIDv4 string") from exc
+    if parsed.version != 4 or str(parsed) != value:
+        raise IngressProtocolError("delivery_id must be a canonical UUIDv4")
     return value
 
 
@@ -101,6 +115,7 @@ def encode_event_frame(
     raw_event: bytes | str,
     *,
     source_instance: str,
+    delivery_id: str,
 ) -> bytes:
     source_instance = (
         _validate_source_instance(
@@ -108,6 +123,7 @@ def encode_event_frame(
         )
     )
 
+    delivery_id = _validate_delivery_id(delivery_id)
     event = _event_bytes(raw_event)
 
     header = json.dumps(
@@ -118,6 +134,8 @@ def encode_event_frame(
                 INGRESS_SCHEMA_VERSION,
             "source_instance":
                 source_instance,
+            "delivery_id":
+                delivery_id,
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -146,7 +164,7 @@ def encode_event_frame(
 
 def decode_event_frame(
     frame: bytes,
-) -> tuple[str, bytes]:
+) -> tuple[str, str, bytes]:
     if not isinstance(frame, bytes):
         raise IngressProtocolError(
             "ingress frame must be bytes"
@@ -204,6 +222,7 @@ def decode_event_frame(
         "message_type",
         "schema_version",
         "source_instance",
+        "delivery_id",
     }:
         raise IngressProtocolError(
             "ingress header fields are invalid"
@@ -243,8 +262,11 @@ def decode_event_frame(
         )
     )
 
+    delivery_id = _validate_delivery_id(header["delivery_id"])
+
     return (
         source_instance,
+        delivery_id,
         event,
     )
 
@@ -589,6 +611,7 @@ class IngressServer:
         try:
             (
                 source_instance,
+                delivery_id,
                 raw_event,
             ) = decode_event_frame(
                 frame
@@ -604,6 +627,7 @@ class IngressServer:
                 source_instance=(
                     source_instance
                 ),
+                delivery_id=delivery_id,
                 monotonic_ns=(
                     time.monotonic_ns()
                 ),
@@ -624,12 +648,22 @@ class IngressServer:
             )
             return
 
-        result = (
-            append_observation_idempotent(
+        try:
+            result = append_observation_idempotent(
                 self.state_dir,
                 **observation,
             )
-        )
+        except ObservationIntegrityError:
+            # Reusing a delivery ID with different content is a
+            # protocol violation, not a reason to stop the daemon.
+            self._send_response(
+                connection,
+                {
+                    "schema_version": INGRESS_SCHEMA_VERSION,
+                    "status": "rejected",
+                },
+            )
+            return
 
         # Persistence has already committed here.
         # If this response is lost, deterministic
@@ -721,11 +755,13 @@ def send_event(
     raw_event: bytes | str,
     *,
     source_instance: str,
+    delivery_id: str,
     timeout: float = 2.0,
 ) -> dict[str, Any]:
     frame = encode_event_frame(
         raw_event,
         source_instance=source_instance,
+        delivery_id=delivery_id,
     )
 
     client = socket.socket(

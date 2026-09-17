@@ -10,6 +10,8 @@ from corvore.collector import (
 
 
 BOOT_ID = "11111111-2222-3333-4444-555555555555"
+DELIVERY_ID = "e31575a3-8721-496a-b8d2-2f037a7c2c6e"
+OTHER_DELIVERY_ID = "3b860d5f-ed59-481d-a182-a6b7943dd4b8"
 
 
 def valid_event():
@@ -41,6 +43,7 @@ class BettercapCollectorContractTests(
             event,
             boot_id=BOOT_ID,
             source_instance="wlan0",
+            delivery_id=DELIVERY_ID,
             monotonic_ns=123456,
         )
 
@@ -86,15 +89,15 @@ class BettercapCollectorContractTests(
         )
 
         first = deterministic_observation_id(
-            event,
             boot_id=BOOT_ID,
             source_instance="wlan0",
+            delivery_id=DELIVERY_ID,
         )
 
         second = deterministic_observation_id(
-            event,
             boot_id=BOOT_ID,
             source_instance="wlan0",
+            delivery_id=DELIVERY_ID,
         )
 
         self.assertEqual(first, second)
@@ -107,21 +110,48 @@ class BettercapCollectorContractTests(
         )
 
         first = deterministic_observation_id(
-            event,
             boot_id=BOOT_ID,
             source_instance="wlan0",
+            delivery_id=DELIVERY_ID,
         )
 
         second = deterministic_observation_id(
-            event,
             boot_id=(
                 "aaaaaaaa-bbbb-cccc-dddd-"
                 "eeeeeeeeeeee"
             ),
             source_instance="wlan0",
+            delivery_id=DELIVERY_ID,
         )
 
         self.assertNotEqual(first, second)
+
+    def test_distinct_emissions_can_have_identical_content(self):
+        event = parse_bettercap_event(json.dumps(valid_event()))
+        first = deterministic_observation_id(
+            boot_id=BOOT_ID,
+            source_instance="wlan0",
+            delivery_id=DELIVERY_ID,
+        )
+        second = deterministic_observation_id(
+            boot_id=BOOT_ID,
+            source_instance="wlan0",
+            delivery_id=OTHER_DELIVERY_ID,
+        )
+        self.assertNotEqual(first, second)
+        other_event = parse_bettercap_event(json.dumps(valid_event()))
+        self.assertEqual(event.canonical_sha256, other_event.canonical_sha256)
+
+    def test_invalid_delivery_id_is_rejected(self):
+        event = parse_bettercap_event(json.dumps(valid_event()))
+        with self.assertRaises(CollectorEventError):
+            build_observation(
+                event,
+                boot_id=BOOT_ID,
+                source_instance="wlan0",
+                delivery_id="not-a-uuid",
+                monotonic_ns=1,
+            )
 
     def test_unsupported_event_tag_is_rejected(
         self,
@@ -227,6 +257,7 @@ class BettercapCollectorContractTests(
                 event,
                 boot_id=BOOT_ID,
                 source_instance="../wlan0",
+                delivery_id=DELIVERY_ID,
                 monotonic_ns=1,
             )
 
