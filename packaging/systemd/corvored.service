@@ -30,6 +30,12 @@ NoNewPrivileges=yes
 PrivateNetwork=yes
 PrivateTmp=yes
 PrivateDevices=yes
+RemoveIPC=yes
+
+ProtectProc=invisible
+
+RestrictNamespaces=yes
+RestrictRealtime=yes
 
 ProtectSystem=strict
 ProtectHome=yes
