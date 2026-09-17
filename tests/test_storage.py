@@ -7,8 +7,10 @@ import unittest
 from corvore.storage import (
     CORE_APPLICATION_ID,
     OBSERVATIONS_APPLICATION_ID,
+    ObservationIntegrityError,
     StorageError,
     append_observation,
+    append_observation_idempotent,
     initialize_databases,
     read_observations_after,
     storage_status,
@@ -203,6 +205,102 @@ class StorageTests(unittest.TestCase):
             rows[1]["payload"]["text"],
             "beta",
         )
+
+    def test_idempotent_append_returns_existing_sequence(
+        self,
+    ):
+        initialize_databases(
+            self.state
+        )
+
+        first = append_observation_idempotent(
+            self.state,
+            observation_id=(
+                "test-idempotent-observation"
+            ),
+            boot_id="test-boot-0001",
+            monotonic_ns=100,
+            source_kind="bettercap",
+            source_instance="wlan0",
+            observation_kind="wifi.ap.new",
+            payload={
+                "schema_version": 1,
+                "data": {
+                    "mac":
+                        "AA:BB:CC:DD:EE:FF",
+                },
+            },
+        )
+
+        retry = append_observation_idempotent(
+            self.state,
+            observation_id=(
+                "test-idempotent-observation"
+            ),
+            boot_id="test-boot-0001",
+            monotonic_ns=999999,
+            source_kind="bettercap",
+            source_instance="wlan0",
+            observation_kind="wifi.ap.new",
+            payload={
+                "schema_version": 1,
+                "data": {
+                    "mac":
+                        "AA:BB:CC:DD:EE:FF",
+                },
+            },
+        )
+
+        self.assertEqual(
+            first["ingest_seq"],
+            retry["ingest_seq"],
+        )
+
+        rows = read_observations_after(
+            self.state,
+            after_ingest_seq=0,
+        )
+
+        self.assertEqual(
+            len(rows),
+            1,
+        )
+
+    def test_idempotent_append_rejects_identity_conflict(
+        self,
+    ):
+        initialize_databases(
+            self.state
+        )
+
+        append_observation_idempotent(
+            self.state,
+            observation_id=(
+                "test-idempotent-conflict"
+            ),
+            boot_id="test-boot-0001",
+            monotonic_ns=100,
+            source_kind="bettercap",
+            source_instance="wlan0",
+            observation_kind="wifi.ap.new",
+            payload={"value": 1},
+        )
+
+        with self.assertRaises(
+            ObservationIntegrityError
+        ):
+            append_observation_idempotent(
+                self.state,
+                observation_id=(
+                    "test-idempotent-conflict"
+                ),
+                boot_id="test-boot-0001",
+                monotonic_ns=200,
+                source_kind="bettercap",
+                source_instance="wlan0",
+                observation_kind="wifi.ap.new",
+                payload={"value": 2},
+            )
 
     def test_observation_log_is_append_only(self):
         initialize_databases(

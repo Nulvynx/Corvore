@@ -86,9 +86,32 @@ collection.
 
 ## Transport
 
-The production transport will use a local Unix-domain message boundary
-with bounded frames and an acknowledgement only after durable
-persistence.
+The passive transport uses a local Unix-domain `SOCK_SEQPACKET`
+message boundary with bounded frames.
+
+The core validates the connecting process identity through Linux
+`SO_PEERCRED` and accepts collection traffic only from the configured
+collector UID.
+
+A connection carries one source event. This bounds the lifetime of one
+ingress session and prevents a faulty collector from holding a single
+connection indefinitely.
+
+The shared ingress runtime directory is owned by the core service and
+grouped to `corvore-ingress`. The collector receives only the group
+access required to connect to the ingress socket.
+
+An acknowledgement with status `committed` is emitted only after the
+SQLite observation append transaction returns successfully.
+
+`observations.db` retains its configured SQLite durability policy. A
+transport acknowledgement is therefore a commit acknowledgement, not
+a claim that every event forced an immediate physical-media flush.
+
+If an acknowledgement is lost after commit, retransmission is safe:
+the deterministic observation identity maps the event back to the
+existing `ingest_seq` rather than creating a second observation. The
+original persisted monotonic receive timestamp remains unchanged.
 
 Transport failure must not cause the core to fabricate observations.
 

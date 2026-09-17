@@ -14,8 +14,12 @@ from corvore.daemon import (
     read_runtime_status,
     run_service,
 )
+from corvore.ingress import (
+    send_event,
+)
 from corvore.storage import (
     processing_checkpoint,
+    read_observations_after,
     storage_status,
 )
 
@@ -150,6 +154,118 @@ class DaemonLifecycleTests(
             0,
         )
 
+    def test_service_ingress_commits_observation(
+        self,
+    ):
+        stop = threading.Event()
+
+        socket_path = (
+            Path(self.temp.name)
+            / "ingress"
+            / "events.sock"
+        )
+
+        result = {}
+
+        def target():
+            result["code"] = run_service(
+                state_dir=self.state,
+                runtime_dir=self.runtime,
+                stop_event=stop,
+                ingress_socket=socket_path,
+                ingress_allowed_uid=(
+                    os.getuid()
+                ),
+            )
+
+        thread = threading.Thread(
+            target=target,
+            daemon=True,
+        )
+
+        thread.start()
+
+        running = self._wait_for_state(
+            "running"
+        )
+
+        self.assertEqual(
+            running["service"],
+            "corvored",
+        )
+
+        self.assertTrue(
+            socket_path.is_socket()
+        )
+
+        response = send_event(
+            socket_path,
+            json.dumps({
+                "tag": "wifi.ap.new",
+                "time":
+                    "2026-09-17T11:00:00Z",
+                "data": {
+                    "mac":
+                        "AA:BB:CC:DD:EE:FF",
+                    "frequency":
+                        2412,
+                    "rssi":
+                        -40,
+                },
+            }),
+            source_instance="wlan0",
+        )
+
+        self.assertEqual(
+            response["status"],
+            "committed",
+        )
+
+        rows = read_observations_after(
+            self.state,
+            after_ingest_seq=0,
+        )
+
+        self.assertEqual(
+            len(rows),
+            1,
+        )
+
+        self.assertEqual(
+            rows[0][
+                "observation_kind"
+            ],
+            "wifi.ap.new",
+        )
+
+        self.assertEqual(
+            rows[0][
+                "ingest_seq"
+            ],
+            response[
+                "ingest_seq"
+            ],
+        )
+
+        stop.set()
+
+        thread.join(
+            timeout=5
+        )
+
+        self.assertFalse(
+            thread.is_alive()
+        )
+
+        self.assertEqual(
+            result["code"],
+            0,
+        )
+
+        self.assertFalse(
+            socket_path.exists()
+        )
+
     def test_runtime_directory_symlink_is_rejected(
         self,
     ):
@@ -195,6 +311,7 @@ class DaemonLifecycleTests(
                 str(self.state),
                 "--runtime-dir",
                 str(self.runtime),
+                "--no-ingress",
             ],
             cwd=Path.cwd(),
             env=environment,

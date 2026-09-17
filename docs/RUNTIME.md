@@ -107,7 +107,8 @@ The core runtime uses the following image layout:
 Persistent and ephemeral writable paths remain separate:
 
 - `/var/lib/corvore` — durable application state
-- `/run/corvore` — ephemeral service state
+- `/run/corvore` — ephemeral core service state
+- `/run/corvore-ingress` — local passive collection IPC boundary
 
 The runtime overlay is built offline and does not require `pip` or network
 access on the field device.

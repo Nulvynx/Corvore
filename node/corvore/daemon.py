@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import argparse
+import grp
 import json
 import os
 from pathlib import Path
+import pwd
 import signal
 import sys
 import threading
 from typing import Any
 
+from corvore.ingress import (
+    IngressServer,
+)
 from corvore.storage import (
     StorageError,
     initialize_databases,
@@ -20,6 +25,15 @@ from corvore.storage import (
 
 DEFAULT_STATE_DIR = "/var/lib/corvore"
 DEFAULT_RUNTIME_DIR = "/run/corvore"
+DEFAULT_INGRESS_SOCKET = (
+    "/run/corvore-ingress/events.sock"
+)
+DEFAULT_INGRESS_PEER_USER = (
+    "corvore-collector"
+)
+DEFAULT_INGRESS_GROUP = (
+    "corvore-ingress"
+)
 STATUS_FILENAME = "corvored.json"
 STATUS_SCHEMA_VERSION = 1
 
@@ -237,6 +251,35 @@ def read_runtime_status(
     return payload
 
 
+def _resolve_ingress_identity(
+    user_name: str,
+    group_name: str,
+) -> tuple[int, int]:
+    try:
+        user = pwd.getpwnam(
+            user_name
+        )
+    except KeyError as exc:
+        raise DaemonError(
+            "ingress peer user "
+            "does not exist"
+        ) from exc
+
+    try:
+        group = grp.getgrnam(
+            group_name
+        )
+    except KeyError as exc:
+        raise DaemonError(
+            "ingress group does not exist"
+        ) from exc
+
+    return (
+        int(user.pw_uid),
+        int(group.gr_gid),
+    )
+
+
 def run_service(
     *,
     state_dir: (
@@ -248,6 +291,11 @@ def run_service(
     stop_event: (
         threading.Event | None
     ) = None,
+    ingress_socket: (
+        str | os.PathLike[str] | None
+    ) = None,
+    ingress_allowed_uid: int | None = None,
+    ingress_socket_gid: int | None = None,
 ) -> int:
     runtime_root = Path(runtime_dir)
 
@@ -269,15 +317,59 @@ def run_service(
     if stop_event is None:
         stop_event = threading.Event()
 
+    ingress_server = None
+    ingress_thread = None
+
     try:
         initialize_databases(
             state_dir
         )
 
-        checkpoint = \
+        checkpoint = (
             processing_checkpoint(
                 state_dir
             )
+        )
+
+        if ingress_socket is not None:
+            if ingress_allowed_uid is None:
+                raise DaemonError(
+                    "ingress peer UID required"
+                )
+
+            ingress_server = IngressServer(
+                state_dir=state_dir,
+                socket_path=ingress_socket,
+                boot_id=boot_id,
+                allowed_uid=(
+                    ingress_allowed_uid
+                ),
+                socket_gid=(
+                    ingress_socket_gid
+                ),
+                stop_event=stop_event,
+            )
+
+            ingress_thread = threading.Thread(
+                target=ingress_server.run,
+                name="corvore-ingress",
+                daemon=True,
+            )
+
+            ingress_thread.start()
+
+            if not ingress_server.ready_event.wait(
+                timeout=5
+            ):
+                raise DaemonError(
+                    "ingress startup timed out"
+                )
+
+            if ingress_server.failure is not None:
+                raise DaemonError(
+                    "ingress startup failed: "
+                    f"{ingress_server.failure}"
+                )
 
         _write_status(
             runtime_root,
@@ -288,7 +380,36 @@ def run_service(
             ),
         )
 
-        stop_event.wait()
+        while not stop_event.wait(0.2):
+            if (
+                ingress_server is not None
+                and ingress_server.failure
+                is not None
+            ):
+                raise DaemonError(
+                    "ingress failed: "
+                    f"{ingress_server.failure}"
+                )
+
+        if (
+            ingress_server is not None
+            and ingress_server.failure
+            is not None
+        ):
+            raise DaemonError(
+                "ingress failed: "
+                f"{ingress_server.failure}"
+            )
+
+        if ingress_thread is not None:
+            ingress_thread.join(
+                timeout=5
+            )
+
+            if ingress_thread.is_alive():
+                raise DaemonError(
+                    "ingress shutdown timed out"
+                )
 
         _write_status(
             runtime_root,
@@ -319,6 +440,16 @@ def run_service(
         return 0
 
     except Exception:
+        stop_event.set()
+
+        if (
+            ingress_thread is not None
+            and ingress_thread.is_alive()
+        ):
+            ingress_thread.join(
+                timeout=5
+            )
+
         try:
             checkpoint = \
                 processing_checkpoint(
@@ -363,6 +494,26 @@ def main(
         default=DEFAULT_RUNTIME_DIR,
     )
 
+    parser.add_argument(
+        "--ingress-socket",
+        default=DEFAULT_INGRESS_SOCKET,
+    )
+
+    parser.add_argument(
+        "--ingress-peer-user",
+        default=DEFAULT_INGRESS_PEER_USER,
+    )
+
+    parser.add_argument(
+        "--ingress-group",
+        default=DEFAULT_INGRESS_GROUP,
+    )
+
+    parser.add_argument(
+        "--no-ingress",
+        action="store_true",
+    )
+
     args = parser.parse_args(argv)
 
     stop_event = threading.Event()
@@ -385,10 +536,34 @@ def main(
     )
 
     try:
+        ingress_socket = None
+        ingress_uid = None
+        ingress_gid = None
+
+        if not args.no_ingress:
+            (
+                ingress_uid,
+                ingress_gid,
+            ) = _resolve_ingress_identity(
+                args.ingress_peer_user,
+                args.ingress_group,
+            )
+
+            ingress_socket = (
+                args.ingress_socket
+            )
+
         return run_service(
             state_dir=args.state_dir,
             runtime_dir=args.runtime_dir,
             stop_event=stop_event,
+            ingress_socket=ingress_socket,
+            ingress_allowed_uid=(
+                ingress_uid
+            ),
+            ingress_socket_gid=(
+                ingress_gid
+            ),
         )
 
     except (

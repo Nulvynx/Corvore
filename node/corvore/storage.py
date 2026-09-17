@@ -1221,6 +1221,128 @@ def append_observation(
     }
 
 
+def append_observation_idempotent(
+    state_dir: str | os.PathLike[str],
+    *,
+    boot_id: str,
+    monotonic_ns: int,
+    source_kind: str,
+    source_instance: str,
+    observation_kind: str,
+    payload: dict[str, Any],
+    observed_at_utc: str | None = None,
+    clock_accuracy_verified: bool = False,
+    observation_id: str | None = None,
+) -> dict[str, Any]:
+    try:
+        return append_observation(
+            state_dir,
+            boot_id=boot_id,
+            monotonic_ns=monotonic_ns,
+            source_kind=source_kind,
+            source_instance=source_instance,
+            observation_kind=observation_kind,
+            payload=payload,
+            observed_at_utc=observed_at_utc,
+            clock_accuracy_verified=(
+                clock_accuracy_verified
+            ),
+            observation_id=observation_id,
+        )
+
+    except sqlite3.IntegrityError as exc:
+        if observation_id is None:
+            raise
+
+        payload_json, payload_sha256 = \
+            _canonical_payload(payload)
+
+        normalized_observed_at = \
+            _normalize_observed_at_utc(
+                observed_at_utc,
+                clock_accuracy_verified=(
+                    clock_accuracy_verified
+                ),
+            )
+
+        paths = DatabasePaths.from_state_dir(
+            state_dir
+        )
+
+        connection = _readonly_connection(
+            paths.observations,
+            "observations",
+        )
+
+        try:
+            _verified_migrations(
+                connection,
+                "observations",
+            )
+
+            row = connection.execute(
+                """
+                SELECT
+                    ingest_seq,
+                    boot_id,
+                    observed_at_utc,
+                    clock_accuracy_verified,
+                    source_kind,
+                    source_instance,
+                    observation_kind,
+                    payload_json,
+                    payload_sha256
+                FROM observation_log
+                WHERE observation_id = ?
+                """,
+                (observation_id,),
+            ).fetchone()
+
+        finally:
+            connection.close()
+
+        if row is None:
+            raise
+
+        equivalent = (
+            str(row["boot_id"])
+            == boot_id
+            and row["observed_at_utc"]
+            == normalized_observed_at
+            and int(
+                row[
+                    "clock_accuracy_verified"
+                ]
+            )
+            == int(clock_accuracy_verified)
+            and str(row["source_kind"])
+            == source_kind
+            and str(row["source_instance"])
+            == source_instance
+            and str(row["observation_kind"])
+            == observation_kind
+            and str(row["payload_json"])
+            == payload_json
+            and str(row["payload_sha256"])
+            == payload_sha256
+        )
+
+        if not equivalent:
+            raise ObservationIntegrityError(
+                "observation identity conflict"
+            ) from exc
+
+        return {
+            "ingest_seq": int(
+                row["ingest_seq"]
+            ),
+            "observation_id":
+                observation_id,
+            "payload_sha256":
+                payload_sha256,
+        }
+
+
 def processing_checkpoint(
     state_dir: str | os.PathLike[str],
 ) -> int:
